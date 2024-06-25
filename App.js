@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Camera } from "expo-camera";
 import { cameraWithTensors } from "@tensorflow/tfjs-react-native";
@@ -15,47 +15,46 @@ const App = () => {
   const [type, setType] = useState(Camera.Constants.Type.back);
   const [model, setModel] = useState(null);
   const [predictions, setPredictions] = useState([]);
-  const { width: screenWidth, height: screenHeight } =
-     Dimensions.get("window");
+  const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
+  const FRAME_SKIP_INTERVAL = 10; // Process one frame every 10 frames
+  const frameSkip = useRef(FRAME_SKIP_INTERVAL);
+  const isProcessing = useRef(false); // Ref to track if processing is ongoing
 
   const handleCameraStream = (images, updatePreview, gl) => {
     const loop = async () => {
-      // Mock predictions to test
-      //setPredictions([{ class: "person", score: 0.9, bbox: [0, 0, 0.1, 0.1] }]);
-
-      // Change the predictions randomly every frame
-      /*
-      setPredictions([
-        {
-          class: "person",
-          score: 0.9,
-          bbox: [Math.random(), Math.random(), 0.1, 0.1],
-        },
-      ]);
-      */
       const nextImageTensor = images.next().value;
 
-      // Process the image tensor with TensorFlow
-      if (nextImageTensor && model) {
-        const preds = await model.detect(nextImageTensor);
-        const scaledPreds = scalePredictions(
-          preds,
-          screenWidth,
-          screenHeight,
-          1920,
-          1080
-        );
-
-        // Log the predictions
-        console.log(scaledPreds);
-        setPredictions(scaledPreds);
-        await tf.dispose(nextImageTensor);
+      // Store a copy of the frame for processing
+      if (!isProcessing.current && nextImageTensor) {
+        frameData.current = nextImageTensor.clone();
+        console.log(`Processing frame... isProcessing: ${isProcessing.current}`);
+        processFrame();
       }
 
+      tf.dispose(nextImageTensor);
       requestAnimationFrame(loop);
     };
 
     loop();
+  };
+
+  const processFrame = async () => {
+    if (frameData.current && model) {
+      isProcessing.current = true;
+      try {
+        console.log('Processing frame...');
+        const preds = await model.detect(frameData.current);
+        const scaledPreds = scalePredictions(preds, screenWidth, screenHeight, 1920, 1080);
+        setPredictions(scaledPreds);
+        console.log(`[PREDICTIONS] ${JSON.stringify(scaledPreds)}, frame: ${frameSkip.current}`);
+      } catch (error) {
+        console.error(error);
+      } finally {
+        tf.dispose(frameData.current);
+        frameData.current = null;
+        isProcessing.current = false;
+      }
+    }
   };
 
   useEffect(() => {
